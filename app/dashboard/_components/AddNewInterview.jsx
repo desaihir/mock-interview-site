@@ -12,15 +12,24 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { generateInterviewQuestions } from '@/utils/geminiAi'
-
+import { Loader2Icon } from 'lucide-react'
+import { db } from '@/utils/db'
+import { MockInterview } from '@/utils/schema'
+import { v4 as uuidv4 } from 'uuid';
+import { useUser } from '@clerk/nextjs'
+import moment from 'moment'
 
 function AddNewInterview() {
   const [openDialog, setOpenDialog] = useState(false)
   const [jobPosition, setJobPosition] = useState()
   const [jobDesc, setJobDesc] = useState()
   const [jobExp, setJobExp] = useState()
+  const [loading, setLoading] = useState(false)
+  const [interviewQuestions, setInterviewQuestions] = useState([])
+  const {user} =useUser()
 
   const onSubmit = async(e) => {
+    setLoading(true)
     e.preventDefault()
     console.log("Job Position: ", jobPosition, 
     "Job Description: ", jobDesc, 
@@ -30,19 +39,38 @@ function AddNewInterview() {
     Depending on this information, please give me 5 interview questions with expected answers in JSON format. 
     Please give questions and answers as fields in JSON.`;
 
-    try {
+    
       const rawResponse = await generateInterviewQuestions(inputPrompt);
-      // console.log("Gemini raw result:", rawResponse);
-
-
+      
       const clean = rawResponse.replace(/```json|```/g, "");
+      // const mockResp = clean;
       const json = JSON.parse(clean);
 
       console.log("Parsed Gemini Output:", json);
       // Set this to state if you want to display in UI
-    } catch (err) {
-      console.error("Error generating or parsing Gemini response:", err);
+    
+    setInterviewQuestions(clean);
+
+    if(clean){
+    // to save the interview questions to the database
+    const resp= await db.insert(MockInterview).values({
+      mockId: uuidv4(),
+      jsonMockResp: clean,
+      jobPosition: jobPosition,
+      jobDesc: jobDesc,
+      jobExperience: jobExp,
+      createdBy: user?.primaryEmailAddress?.emailAddress,
+      createdAt: moment().format("YYYY-MM-DD HH:mm:ss")
+    }).returning({mockId: MockInterview.mockId, createdAt: MockInterview.createdAt});
+
+    console.log("Inserted Mock Interview: ", resp);
+    if(resp)
+    setOpenDialog(false);
     }
+    else{
+      console.log("Error: No response from Gemini AI");
+    }
+    setLoading(false)
   };
 
   return (
@@ -82,7 +110,10 @@ function AddNewInterview() {
               </div>
               <div className='flex gap-5 justify-end'>
                 <Button type='button' variant='ghost' onClick={()=>setOpenDialog(false)}>Cancel</Button>
-                <Button type='submit'>Start Interview</Button>
+                <Button type='submit' disabled={loading}>
+                  {loading ? 
+                  <><Loader2Icon className='animate-spin'/>"Loading Interview Questions"</>
+                  :"Generate Interview Questions"}</Button>
               </div>
               </form>
             </DialogDescription>
